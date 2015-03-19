@@ -19,6 +19,7 @@
     "http-server": "^0.7.5",
     "inherits": "^2.0.1",
     "mp4box": "git://github.com/jhiesey/mp4box.js.git#nodified",
-    "webtorrent": "^0.29.3"
+    "webtorrent": "^0.29.3",
+    "webworkify": "^1.0.2"
   }
 }

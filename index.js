@@ -1,13 +1,14 @@
-var MP4Box = require('mp4box');
-var video = document.querySelector('video');
-
 var WebTorrent = require('webtorrent');
+var work = require('webworkify');
+
+var video = document.querySelector('video');
 
 var client = new WebTorrent();
 var infoHash = 'a54c3ee75cb901001e46da2072ed7bfde7a5374e';
 
 var mediaSource;
 var file;
+
 client.add({
 	infoHash: infoHash,
 	announce: 'wss://tracker.webtorrent.io/'
@@ -17,6 +18,8 @@ client.add({
 
 	// Let's say the first file is a webm (vp8) or mp4 (h264) video...
 	file = torrent.files[0]
+
+	send({ type: 'init', data: { fileLength: file.length }})
 
 	video.addEventListener('waiting', function () {
 		if (ready) {
@@ -31,18 +34,26 @@ client.add({
 	video.src = window.URL.createObjectURL(mediaSource);
 });
 
-var mp4box = new MP4Box();
-mp4box.onError = function (e) {
-	console.error('MP4Box error:');
-	console.error(e);
-};
 var ready = false;
 var tracks = {}; // keyed by id
-mp4box.onReady = function (info) {
-	console.log('Info:');
-	console.log(info);
 
-	info.tracks.forEach(function (track) {
+var worker = work(require('./worker.js'));
+
+worker.addEventListener('message', function (event) {
+	var message = event.data;
+	if (message.type === 'metadata') {
+		handleMetadata(message.data)
+	} else (message.type === 'segment') {
+		appendBuffer(message.trackId, message.buffer, message.ended)
+	} else (message.type === 'offset') {
+		handleOffset(message.data)
+	} else {
+		throw new Error('unexpected message', message)
+	}
+});
+
+function handleMetadata (metadata) {
+	metadata.tracks.forEach(function (track) {
 		var mime = 'video/mp4; codecs="' + track.codec + '"';
 		if (MediaSource.isTypeSupported(mime)) {
 			var sourceBuffer = mediaSource.addSourceBuffer(mime);
@@ -53,24 +64,18 @@ mp4box.onReady = function (info) {
 				ended: false
 			};
 			sourceBuffer.addEventListener('updateend', popBuffers.bind(null, trackEntry));
-			mp4box.setSegmentOptions(track.id, null, {
-				nbSamples: 500
-			});
-			tracks[track.id] = trackEntry
+			tracks[track.id] = trackEntry;
 		}
 	});
+}
 
-	var initSegs = mp4box.initializeSegmentation();
-	initSegs.forEach(function (initSegment) {
-		appendBuffer(tracks[initSegment.id], initSegment.buffer);
-	});
-	ready = true;
-};
-mp4box.onSegment = function (id, user, buffer, nextSample) {
-	console.log('got segment; nextSample:', nextSample);
-	var track = tracks[id];
-	appendBuffer(track, buffer, nextSample === track.meta.nb_samples);
-};
+function handleOffset (offset) {
+
+}
+
+function send (message, transferable) {
+	worker.postMessage(message, transferable);
+}
 
 var desiredIngestOffset = 0;
 var downloadBusy = false;
@@ -90,13 +95,16 @@ function makeRequest () {
 	stream.on('data', function (data) {
 		console.log('data, length: ', data.length);
 		// console.log(data.toString('hex'));
-		if (desiredIngestOffset !== requestOffset) {
-			console.warn('moving');
-		}
 		var arrayBuffer = data.toArrayBuffer(); // TODO: avoid copy
 		arrayBuffer.fileStart = requestOffset;
+
+		// if (desiredIngestOffset !== requestOffset) {
+		//   console.warn('moving');
+		// }
+
 		requestOffset += arrayBuffer.byteLength;
-		desiredIngestOffset = mp4box.appendBuffer(arrayBuffer);
+
+		send({ type: 'buffer', data: arrayBuffer }, [ arrayBuffer ]);
 	});
 	stream.on('end', function () {
 		console.log('end');
@@ -121,7 +129,8 @@ function seek (seconds) {
 	makeRequest();
 }
 
-function appendBuffer (track, buffer, ended) {
+function appendBuffer (trackId, buffer, ended) {
+	var track = tracks[trackId];
 	track.arrayBuffers.push({
 		buffer: buffer,
 		ended: ended || false
