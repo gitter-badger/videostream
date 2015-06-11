@@ -1,5 +1,7 @@
 # Videostream
 
+[![Join the chat at https://gitter.im/ericwooley/videostream](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/ericwooley/videostream?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Streams data from a file-like seekable object into a &lt;video&gt; or &lt;audio&gt; node (a `HTMLMediaElement`).
 Seeking the media element will request a different byte range from the incoming
 file-like object.
